@@ -55,6 +55,54 @@
   # nixpkgs.config.allowInsecurePredicate = p: lib.hasPrefix "broadcom-sta" (lib.getName p);
 
   hardware.bluetooth.enable = true;
+  hardware.bluetooth.powerOnBoot = false;  # si accende solo quando serve
+
+  # --- Risparmio energetico -------------------------------------------------
+  # È un server: non deve mai andare in sospensione
+  systemd.targets.sleep.enable = false;
+  systemd.targets.suspend.enable = false;
+  systemd.targets.hibernate.enable = false;
+  systemd.targets.hybrid-sleep.enable = false;
+
+  # Wi-Fi sempre pienamente attivo: è l'unica connessione del server e il
+  # risparmio energetico del Wi-Fi può causare ritardi o disconnessioni.
+  networking.networkmanager.wifi.powersave = false;
+
+  # powertop --auto-tune all'avvio (sospensione automatica di USB, PCI, audio...)
+  powerManagement.powertop = {
+    enable = true;
+    # ...ma tastiera e mouse USB restano sempre attivi (niente ritardi)
+    postStart = ''
+      for i in /sys/bus/usb/devices/*:*; do
+        if [ "$(cat "$i/bInterfaceClass" 2>/dev/null)" = "03" ]; then
+          echo on > "$i/../power/control"
+        fi
+      done
+    '';
+  };
+
+  # Monitor in standby dopo 10 minuti di inattività (anche sulla schermata
+  # di login). È il risparmio più grande: un monitor acceso consuma più del Mac.
+  services.xserver.serverFlagsSection = ''
+    Option "BlankTime" "10"
+    Option "StandbyTime" "10"
+    Option "SuspendTime" "10"
+    Option "OffTime" "10"
+  '';
+  # Nella sessione LXQt lo schermo lo gestisce xscreensaver: schermo nero
+  # (niente animazioni, che consumano CPU e GPU) e monitor spento dopo 10 min.
+  # Se lo modifichi dalle impostazioni di LXQt, vince ~/.xscreensaver.
+  services.xserver.displayManager.sessionCommands = ''
+    ${pkgs.xset}/bin/xset s 600 600 +dpms dpms 600 600 600
+    ${pkgs.xrdb}/bin/xrdb -merge <<'EOF'
+    xscreensaver.mode: blank
+    xscreensaver.timeout: 0:10:00
+    xscreensaver.dpmsEnabled: True
+    xscreensaver.dpmsStandby: 0:10:00
+    xscreensaver.dpmsSuspend: 0:10:00
+    xscreensaver.dpmsOff: 0:10:00
+    EOF
+  '';
 
   # --- SSD e memoria --------------------------------------------------------
   # btrfs con subvolumi @ @home @nix (dispositivi e subvol stanno in
@@ -167,12 +215,44 @@
   # "The name is not activatable". Parte solo quando serve.
   services.fwupd.enable = true;
 
-  # --- Container: podman (+ comandi docker), distrobox ----------------------
+  # --- Container ------------------------------------------------------------
+  # Docker per i servizi (stack compose gestiti da Dockge, come sul VPS)
+  virtualisation.docker = {
+    enable = true;
+    autoPrune = {
+      enable = true;  # pulizia settimanale di immagini e container inutilizzati
+      dates = "weekly";
+    };
+    # Log dei container: su NixOS vanno nel journal (driver journald), che ha
+    # già i suoi limiti di spazio. NON aggiungere max-size/max-file: valgono
+    # solo per il driver json-file e con journald Docker non parte.
+  };
+
+  # Podman resta per distrobox (rootless, per l'utente)
   virtualisation.podman = {
     enable = true;
-    dockerCompat = true;  # `docker ...` funziona e chiama podman
     defaultNetwork.settings.dns_enabled = true;  # i container si vedono per nome
   };
+
+  # Dockge: interfaccia web per gli stack in /opt/stacks (http://macmini:5001)
+  virtualisation.oci-containers = {
+    backend = "docker";
+    containers.dockge = {
+      image = "louislam/dockge:1";
+      ports = [ "5001:5001" ];
+      volumes = [
+        "/var/run/docker.sock:/var/run/docker.sock"
+        "/opt/dockge:/app/data"
+        # Il percorso deve essere uguale dentro e fuori dal container
+        "/opt/stacks:/opt/stacks"
+      ];
+      environment.DOCKGE_STACKS_DIR = "/opt/stacks";
+    };
+  };
+  systemd.tmpfiles.rules = [
+    "d /opt/stacks 0755 root root -"
+    "d /opt/dockge 0755 root root -"
+  ];
 
   # --- Software -------------------------------------------------------------
   environment.systemPackages = with pkgs; [
