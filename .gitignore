@@ -1,0 +1,9 @@
+# Segreti: mai nel repository
+wifi.env
+secrets/
+*.env
+!*.env.example
+
+# Output di nixos-rebuild build
+result
+result-*
