@@ -131,6 +131,13 @@
     ];
   };
 
+  # --- Tailscale (VPN privata: accesso da fuori casa, collegamento al VPS) --
+  # Primo collegamento: `sudo tailscale up` e login dal link che stampa.
+  services.tailscale = {
+    enable = true;
+    openFirewall = true;  # UDP 41641: connessioni dirette invece che via relay
+  };
+
   # --- Accesso remoto -------------------------------------------------------
   # Solo chiavi, niente password e niente login diretto di root.
   # La porta 22 viene aperta in automatico nel firewall.
