@@ -266,6 +266,40 @@
     kdePackages.discover  # store grafico (Flatpak/Flathub), Qt come LXQt
   ];
 
+  # --- Aggiornamenti automatici ---------------------------------------------
+  # Ogni notte: aggiornamenti del canale stabile (nixos-26.05) e rebuild da
+  # /etc/nixos. Riavvia da solo SOLO se è cambiato il kernel, tra le 4 e le 6.
+  # Ricorda: a dicembre 2026 passare al canale 26.11 (la 26.05 va fuori supporto).
+  system.autoUpgrade = {
+    enable = true;
+    channel = "https://nixos.org/channels/nixos-26.05";
+    dates = "04:00";
+    randomizedDelaySec = "45min";
+    allowReboot = true;
+    rebootWindow = {
+      lower = "04:00";
+      upper = "06:00";
+    };
+  };
+
+  # App Flatpak aggiornate ogni settimana
+  systemd.services.flatpak-update = {
+    description = "Aggiorna le app Flatpak";
+    wants = [ "network-online.target" ];
+    after = [ "network-online.target" ];
+    path = [ pkgs.flatpak ];
+    serviceConfig.Type = "oneshot";
+    script = "flatpak update -y --noninteractive";
+  };
+  systemd.timers.flatpak-update = {
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      OnCalendar = "weekly";
+      Persistent = true;
+      RandomizedDelaySec = "1h";
+    };
+  };
+
   # --- Nix ------------------------------------------------------------------
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
   nix.gc = {
